@@ -26,17 +26,6 @@ background-image: url(https://media.istockphoto.com/id/1464577941/video/cooperat
       font-size: 2.8rem;
     }
 
-    #connectBtn {
-      margin: 20px auto;
-      display: block;
-      padding: 12px 24px;
-      font-size: 16px;
-      background-color: #2c5364;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-    }
 
     section {
       max-width: 960px;
@@ -58,7 +47,6 @@ background-image: url(https://media.istockphoto.com/id/1464577941/video/cooperat
 
   <header>
     <h1>Live Data Dashboard</h1>
-    <button id="connectBtn">Connect to Deivce</button>
   </header>
 
   <section>
@@ -127,72 +115,75 @@ background-image: url(https://media.istockphoto.com/id/1464577941/video/cooperat
       return Math.sqrt(squareSum / values.length);
     }
 
-    // --- Replace the BLE handler with this "Upload CSV" flow ---
-(function setupOfflineCSVLoader(){
-  const btn = document.getElementById('connectBtn');
+   // ---- Permanent CSV loader (no Bluetooth, no file picker) ----
+const CSV_URL = 'tremor_log.csv'; // adjust path if you put it elsewhere
 
-  // Hidden file input so the page look doesn't change
-  const fileInput = document.createElement('input');
-  fileInput.type = 'file';
-  fileInput.accept = '.csv,text/csv';
-  fileInput.style.display = 'none';
-  document.body.appendChild(fileInput);
-
-  btn.onclick = () => fileInput.click();
-
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const text = await file.text();
+async function loadCsvFromUrl(url){
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
     loadCsvIntoCharts(text);
-  });
-
-  function loadCsvIntoCharts(csvText){
-    // Clear existing series
-    gyroX.length = gyroY.length = gyroZ.length = 0;
-    accelX.length = accelY.length = accelZ.length = 0;
-    rmsValues.length = 0;
-    orientationPitch.length = orientationRoll.length = orientationYaw.length = 0;
-
-    const lines = csvText.split(/\r?\n/).filter(Boolean);
-    if (!lines.length) return;
-
-    // Detect & skip header if present
-    let startIdx = 0;
-    const first = lines[0].toLowerCase();
-    if (first.includes('ms_since_boot') || first.includes('yaw')) startIdx = 1;
-
-    for (let i = startIdx; i < lines.length; i++){
-      const parts = lines[i].split(',').map(s => s.trim());
-      // Expecting: ms,yaw,pitch,roll,ax,ay,az,gx,gy,gz,tremorRMS
-      if (parts.length < 11) continue;
-
-      const yaw   = parseFloat(parts[1]);
-      const pitch = parseFloat(parts[2]);
-      const roll  = parseFloat(parts[3]);
-      const ax    = parseFloat(parts[4]);
-      const ay    = parseFloat(parts[5]);
-      const az    = parseFloat(parts[6]);
-      const gx    = parseFloat(parts[7]);
-      const gy    = parseFloat(parts[8]);
-      const gz    = parseFloat(parts[9]);
-      const trem  = parseFloat(parts[10]);
-
-      if ([yaw,pitch,roll,ax,ay,az,gx,gy,gz,trem].some(v => Number.isNaN(v))) continue;
-
-      gyroX.push(gx);  gyroY.push(gy);  gyroZ.push(gz);
-      accelX.push(ax); accelY.push(ay); accelZ.push(az);
-      rmsValues.push(trem); // use device-computed RMS
-      orientationPitch.push(pitch);
-      orientationRoll.push(roll);
-      orientationYaw.push(yaw);
-    }
-
-    // Refresh charts using your existing helpers
-    updateAllCharts();
-    alert('✅ CSV loaded and charts updated.');
+    console.log('CSV loaded:', url);
+  } catch (err) {
+    console.error('Failed to load CSV:', err);
+    alert('❌ Could not load CSV. Check that tremor_log.csv is deployed next to this HTML.');
   }
-})();
+}
+
+function loadCsvIntoCharts(csvText){
+  // Clear existing series
+  gyroX.length = gyroY.length = gyroZ.length = 0;
+  accelX.length = accelY.length = accelZ.length = 0;
+  rmsValues.length = 0;
+  orientationPitch.length = orientationRoll.length = orientationYaw.length = 0;
+
+  const lines = csvText.split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return;
+
+  // Skip header if present
+  let i = 0;
+  const first = lines[0].toLowerCase();
+  if (first.includes('ms_since_boot') || first.includes('yaw')) i = 1;
+
+  for (; i < lines.length; i++){
+    const parts = lines[i].split(',').map(s => s.trim());
+    // Expected: ms,yaw,pitch,roll,ax,ay,az,gx,gy,gz,tremorRMS
+    if (parts.length < 11) continue;
+
+    const yaw   = parseFloat(parts[1]);
+    const pitch = parseFloat(parts[2]);
+    const roll  = parseFloat(parts[3]);
+    const ax    = parseFloat(parts[4]);
+    const ay    = parseFloat(parts[5]);
+    const az    = parseFloat(parts[6]);
+    const gx    = parseFloat(parts[7]);
+    const gy    = parseFloat(parts[8]);
+    const gz    = parseFloat(parts[9]);
+    const trem  = parseFloat(parts[10]);
+
+    if ([yaw,pitch,roll,ax,ay,az,gx,gy,gz,trem].some(Number.isNaN)) continue;
+
+    gyroX.push(gx);  gyroY.push(gy);  gyroZ.push(gz);
+    accelX.push(ax); accelY.push(ay); accelZ.push(az);
+    rmsValues.push(trem);
+    orientationPitch.push(pitch);
+    orientationRoll.push(roll);
+    orientationYaw.push(yaw);
+  }
+
+  updateAllCharts();
+}
+
+// Load once on page load
+window.addEventListener('DOMContentLoaded', () => {
+  loadCsvFromUrl(CSV_URL);
+});
+
+// Optional: use your existing button to reload the CSV (keeps same label/look)
+document.getElementById('connectBtn').addEventListener('click', () => {
+  loadCsvFromUrl(CSV_URL);
+});
   </script>
 </body>
 </html>
