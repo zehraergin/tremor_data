@@ -127,39 +127,72 @@ background-image: url(https://media.istockphoto.com/id/1464577941/video/cooperat
       return Math.sqrt(squareSum / values.length);
     }
 
-    document.getElementById('connectBtn').addEventListener('click', async () => {
-      try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ name: 'SteadyHand' }],
-          optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
-        });
+    // --- Replace the BLE handler with this "Upload CSV" flow ---
+(function setupOfflineCSVLoader(){
+  const btn = document.getElementById('connectBtn');
 
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
-        const txChar = await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+  // Hidden file input so the page look doesn't change
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.csv,text/csv';
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
 
-        await txChar.startNotifications();
-        txChar.addEventListener('characteristicvaluechanged', event => {
-          const value = new TextDecoder().decode(event.target.value);
-          const [gx, gy, gz, ax, ay, az, pitch, roll, yaw] = value.trim().split(',').map(Number);
+  btn.onclick = () => fileInput.click();
 
-          gyroX.push(gx);  gyroY.push(gy);  gyroZ.push(gz);
-          accelX.push(ax); accelY.push(ay); accelZ.push(az);
-          orientationPitch.push(pitch); orientationRoll.push(roll); orientationYaw.push(yaw);
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    loadCsvIntoCharts(text);
+  });
 
-          // Update RMS (on last 20 gyroX points)
-          const rms = calculateRMS(gyroX.slice(-20));
-          rmsValues.push(rms);
+  function loadCsvIntoCharts(csvText){
+    // Clear existing series
+    gyroX.length = gyroY.length = gyroZ.length = 0;
+    accelX.length = accelY.length = accelZ.length = 0;
+    rmsValues.length = 0;
+    orientationPitch.length = orientationRoll.length = orientationYaw.length = 0;
 
-          updateAllCharts();
-        });
+    const lines = csvText.split(/\r?\n/).filter(Boolean);
+    if (!lines.length) return;
 
-        alert("✅ Connected to SteadyHand via Bluetooth!");
-      } catch (err) {
-        console.error(err);
-        alert("❌ Could not connect to device.");
-      }
-    });
+    // Detect & skip header if present
+    let startIdx = 0;
+    const first = lines[0].toLowerCase();
+    if (first.includes('ms_since_boot') || first.includes('yaw')) startIdx = 1;
+
+    for (let i = startIdx; i < lines.length; i++){
+      const parts = lines[i].split(',').map(s => s.trim());
+      // Expecting: ms,yaw,pitch,roll,ax,ay,az,gx,gy,gz,tremorRMS
+      if (parts.length < 11) continue;
+
+      const yaw   = parseFloat(parts[1]);
+      const pitch = parseFloat(parts[2]);
+      const roll  = parseFloat(parts[3]);
+      const ax    = parseFloat(parts[4]);
+      const ay    = parseFloat(parts[5]);
+      const az    = parseFloat(parts[6]);
+      const gx    = parseFloat(parts[7]);
+      const gy    = parseFloat(parts[8]);
+      const gz    = parseFloat(parts[9]);
+      const trem  = parseFloat(parts[10]);
+
+      if ([yaw,pitch,roll,ax,ay,az,gx,gy,gz,trem].some(v => Number.isNaN(v))) continue;
+
+      gyroX.push(gx);  gyroY.push(gy);  gyroZ.push(gz);
+      accelX.push(ax); accelY.push(ay); accelZ.push(az);
+      rmsValues.push(trem); // use device-computed RMS
+      orientationPitch.push(pitch);
+      orientationRoll.push(roll);
+      orientationYaw.push(yaw);
+    }
+
+    // Refresh charts using your existing helpers
+    updateAllCharts();
+    alert('✅ CSV loaded and charts updated.');
+  }
+})();
   </script>
 </body>
 </html>
